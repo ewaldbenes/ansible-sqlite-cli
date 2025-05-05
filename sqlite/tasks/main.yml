@@ -1,0 +1,51 @@
+---
+# prerequisite for SQLite CLI compilation
+- name: Install readline for SQLite CLI compilation
+  apt:
+    pkg:
+      - libreadline-dev
+      - libncurses-dev
+      - unzip
+      - build-essential
+    state: present
+    update_cache: true
+
+- name: Compute SQLite file name version
+  set_fact:
+    sqlite_version_compr: "{{ sqlite_version | regex_replace('^(\\d+)\\.(\\d+)\\.(\\d+)$', '\\g<1>\\g<2>0\\g<3>') ~ '00' }}"
+
+- name: Get current SQLite version
+  ansible.builtin.shell:
+    cmd: |
+      /usr/local/bin/sqlite3 --version 2>&1
+  register: sqlite_version_current
+  ignore_errors: true
+
+- name: Download SQLite source
+  unarchive:
+    # find out URL: https://stackoverflow.com/questions/615213/where-can-one-find-source-archives-of-old-sqlite-versions
+    src: 'https://www.sqlite.org/2025/sqlite-amalgamation-{{ sqlite_version_compr }}.zip'
+    dest: /tmp
+    remote_src: true
+  when: not sqlite_version_current.stdout.startswith(sqlite_version)
+
+- name: Compile SQLite from source for shell usage
+  ansible.builtin.shell:
+    cmd: |
+      cd /tmp/sqlite-amalgamation-{{ sqlite_version_compr }} && 
+      gcc -O2 -I. -DSQLITE_ENABLE_FTS4 \
+      -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_JSON1 \
+      -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_EXPLAIN_COMMENTS \
+      -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_ENABLE_DBSTAT_VTAB \
+      -DSQLITE_ENABLE_EXPLAIN_COMMENTS -DSQLITE_ENABLE_STAT4 \
+      -DSQLITE_SECURE_DELETE -DHAVE_READLINE \
+      shell.c sqlite3.c -ldl -lm -lreadline -lncurses -o sqlite3
+  when: not sqlite_version_current.stdout.startswith(sqlite_version)
+
+- name: Copy SQLite executable to /usr/local/bin
+  copy:
+    src: '/tmp/sqlite-amalgamation-{{ sqlite_version_compr }}/sqlite3'
+    dest: /usr/local/bin/sqlite3
+    mode: 0755
+    remote_src: true
+  when: not sqlite_version_current.stdout.startswith(sqlite_version)
